@@ -37,7 +37,7 @@ import BusInfo from "./BusInfo.vue";
 
 export default {
   components: {
-    BusInfo
+    BusInfo,
   },
   data() {
     return {
@@ -52,6 +52,11 @@ export default {
     };
   },
   mounted() {
+    this.fetchBuses();
+    this.fetchInterval = setInterval(this.fetchBuses, 20000);
+  },
+  beforeUnmount() {
+    clearInterval(this.fetchInterval);
     // Inicjalizacja listy numerów linii na podstawie danych z local storage, jeśli są dostępne
     const storedBuses = JSON.parse(localStorage.getItem("buses"));
     if (storedBuses) {
@@ -79,7 +84,9 @@ export default {
 
   computed: {
     filteredBrigades() {
-      return this.brigadeMap[this.selectedLineNumber] || [];
+      const brigades = this.brigadeMap[this.selectedLineNumber] || [];
+      // Sortowanie brygad numerycznie
+      return brigades.sort((a, b) => a - b);
     },
   },
 
@@ -122,7 +129,20 @@ export default {
           this.buses = busesData;
           this.lineNumbers = [
             ...new Set(this.buses.map((bus) => bus.line_number)),
-          ];
+          ].sort((a, b) => {
+            // Linie z literami na górze
+            const isALetter = /^[A-Za-z]/.test(a);
+            const isBLetter = /^[A-Za-z]/.test(b);
+
+            if (isALetter && !isBLetter) return -1; // A jest literą, B nie -> A na górze
+            if (!isALetter && isBLetter) return 1; // B jest literą, A nie -> B na górze
+
+            // Jeśli oba są literami lub oba są numerami -> zwykłe sortowanie
+            return isALetter && isBLetter
+              ? a.localeCompare(b) // Sortowanie alfabetyczne dla liter
+              : parseInt(a) - parseInt(b); // Sortowanie numeryczne
+          });
+
           this.brigadeMap = this.lineNumbers.reduce((acc, line) => {
             const brigades = [
               ...new Set(
