@@ -28,16 +28,19 @@
       </div>
     </div>
     <bus-info :bus="selectedBus" :lastKnownBus="lastKnownBus"></bus-info>
+    <wirtual-array></wirtual-array>
   </div>
 </template>
 
 <script>
 import axios from "axios";
 import BusInfo from "./BusInfo.vue";
+import WirtualArray from "./WirtualArray.vue";
 
 export default {
   components: {
     BusInfo,
+    WirtualArray,
   },
   data() {
     return {
