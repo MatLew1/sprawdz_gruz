@@ -1,7 +1,7 @@
 <template>
   <div>
     <h2>Odjazdy z Klonowica:</h2>
-    <p>Dane się aktualizuja automatycznie</p>
+    <p>Dane się aktualizują automatycznie</p>
     <ul>
       <!-- Ograniczenie wyników do 8 za pomocą slice() -->
       <li
@@ -25,7 +25,7 @@
             <span>za {{ formatMinutes(departure.time_real) }}</span>
           </template>
           <template v-else>
-            <span>Planowane: {{ departure.time_scheduled }}</span>
+            <span>Odjazd: {{ departure.time_scheduled }}</span>
           </template>
         </div>
       </li>
@@ -56,30 +56,26 @@ export default {
   },
   computed: {
     mergedDepartures() {
-      return [...this.departures].sort((a, b) => {
-        // Oblicz czas w minutach od początku dnia dla obu odjazdów
-        const aMinutes = this.getDepartureTimeInMinutes(a);
-        const bMinutes = this.getDepartureTimeInMinutes(b);
+    return [...this.departures].sort((a, b) => {
+      const aMinutes = this.getDepartureTimeInMinutes(a);
+      const bMinutes = this.getDepartureTimeInMinutes(b);
 
-        // Porównaj czasy odjazdów
-        return aMinutes - bMinutes;
-      });
-    },
+      // Zawsze umieszczamy autobusy z rzeczywistym czasem odjazdu na początku listy
+      return aMinutes - bMinutes;
+    });
   },
-
+  },
   methods: {
     getDepartureTimeInMinutes(departure) {
+      // Preferujemy czas rzeczywisty, jeśli jest dostępny
       if (departure.time_real !== null) {
-        // Jeśli istnieje czas rzeczywisty, zwróćmy go
         return departure.time_real === 0
-          ? 0 // Odjazd teraz (0 minut)
-          : departure.time_real; // Czas rzeczywisty w minutach
+          ? 0 // Odjazd teraz
+          : departure.time_real;
       }
-
-      // Jeśli brak czasu rzeczywistego, przekształcamy czas zaplanowany na minuty
+      // Jeśli czas rzeczywisty nie jest dostępny, obliczamy czas na podstawie planowanego
       return this.getMinutesFromScheduled(departure.time_scheduled);
     },
-    // Pobieranie danych o odjazdach z obu przystanków
     async fetchDepartures() {
       try {
         const promises = this.stopNumbers.map((stopNumber) =>
@@ -90,31 +86,30 @@ export default {
 
         const results = await Promise.all(promises);
 
-        // Zbieranie danych z obu przystanków
-        this.departures = results.flatMap((response) =>
-          response.data.departures.map((departure) => ({
-            ...departure,
-            time_display:
-              departure.time_real === null
-                ? departure.time_scheduled
-                : departure.time_real,
-          }))
+        this.departures = results.flatMap(
+          (response) => response.data.departures
         );
+
+        // Dodaj sortowanie
+        this.departures.sort((a, b) => {
+          if (a.time_real !== null && b.time_real !== null) {
+            return a.time_real - b.time_real;
+          }
+          if (a.time_real !== null && b.time_real === null) {
+            return -1;
+          }
+          if (a.time_real === null && b.time_real !== null) {
+            return 1;
+          }
+          return a.time_scheduled.localeCompare(b.time_scheduled);
+        });
       } catch (error) {
         console.error("Błąd podczas pobierania danych:", error);
       }
     },
-
-    // Aktualizacja aktualnego czasu
     updateCurrentTime() {
-      const now = new Date();
-      this.currentTime = now;
-
-      // Opcjonalnie: Sprawdzamy poprawność aktualnego czasu w minutach
-      
+      this.currentTime = new Date();
     },
-
-    // Formatowanie czasu w minutach z poprawną gramatyką
     formatMinutes(minutes) {
       if (minutes === 1) {
         return "1 minutę";
@@ -127,54 +122,56 @@ export default {
         return `${minutes} minut`;
       }
     },
-
-    // Przekształcanie czasu planowanego na liczbę minut od początku dnia
     getMinutesFromScheduled(timeScheduled) {
-      if (!timeScheduled) return 0; // Jeśli brak czasu zaplanowanego, zwróć 0
-
+      if (!timeScheduled) return Infinity; // Brak planowanego czasu
       const [hour, minute] = timeScheduled.split(":").map(Number);
+      const now = new Date();
+      const scheduledMinutes = hour * 60 + minute;
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
-      // Walidacja poprawności godzin i minut
-      if (isNaN(hour) || isNaN(minute)) {
-        console.error(`Błędny format czasu: ${timeScheduled}`);
-        return 0; // Jeśli format jest błędny, zwróć 0
-      }
-
-      // Sprawdzanie poprawności zakresu godzin i minut
-      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-        console.error(`Niewłaściwy czas: ${timeScheduled}`);
-        return 0;
-      }
-
-      return hour * 60 + minute; // Przekształć na minuty
+      // Jeśli czas planowany jest wcześniejszy niż obecny (np. po północy), dodajemy 24 godziny
+      return scheduledMinutes >= currentMinutes
+        ? scheduledMinutes - currentMinutes
+        : scheduledMinutes + 1440 - currentMinutes;
     },
-
-    // Sprawdzanie, czy odjazd dzieje się w tej chwili
     isCurrentlyDeparting(departure) {
-      const currentMinutes =
-        this.currentTime.getHours() * 60 + this.currentTime.getMinutes(); // Aktualny czas w minutach
+      const now = new Date();
+      const nowMinutes = now.getHours() * 60 + now.getMinutes(); // aktualny czas w minutach
 
-      // Jeśli czas rzeczywisty jest równy 0, oznacza to, że odjazd ma miejsce teraz
+      // Dla czasu rzeczywistego (jeśli czas realny wynosi 0, autobus odjeżdża teraz)
       if (departure.time_real === 0) {
-        return true;
+        return true; // Autobus miga, bo odjeżdża teraz
       }
 
-      // Jeśli czas rzeczywisty jest null, porównaj zaplanowany czas
+      // Dla zaplanowanego czasu (time_real === null)
       if (departure.time_real === null) {
         const scheduledMinutes = this.getMinutesFromScheduled(
           departure.time_scheduled
         );
-        return scheduledMinutes === currentMinutes; // Porównaj minutowy zaplanowany czas z aktualnym
+
+        // Autobus miga, jeśli zaplanowany czas odjazdu pokrywa się z bieżącym czasem
+        if (scheduledMinutes === nowMinutes) {
+          return true;
+        }
+
+        // Autobus powinien być jeszcze widoczny przez minutę po zaplanowanym odjeździe
+        if (
+          scheduledMinutes < nowMinutes &&
+          scheduledMinutes + 1 === nowMinutes
+        ) {
+          return true;
+        }
+
+        return false;
       }
 
-      return false; // Inne przypadki
+      return false;
     },
   },
 };
 </script>
 
 <style scoped>
-/* Styl listy */
 ul {
   list-style: none;
   padding: 0;
@@ -186,25 +183,22 @@ li {
   border: 1px solid #ccc;
   border-radius: 5px;
   display: grid;
-  grid-template-columns: 1fr 3fr 2fr; /* 3 kolumny: numer linii, kierunek, czas */
+  grid-template-columns: 1fr 3fr 2fr;
   align-items: center;
 }
 
-/* Styl dla numeru linii */
 .line {
   font-weight: bold;
   font-size: 1.5rem;
-  text-align: left; /* Całkowicie wyrównane do lewej */
+  text-align: left;
   color: #000;
 }
 
-/* Styl dla nazwy kierunku */
 .direction {
   font-size: 1.2rem;
   color: #555;
 }
 
-/* Styl dla czasu odjazdu */
 .time {
   font-size: 1rem;
   color: green;
@@ -212,19 +206,16 @@ li {
   text-align: right;
 }
 
-/* Styl dla odjazdów z czasem rzeczywistym 0 minut */
 .highlight {
   background-color: #ffe6e6;
   color: red;
   font-weight: bold;
 }
 
-/* Miganie dla odjazdów z czasem 0 minut lub planowanych odjazdów */
 .flashing {
   animation: flashingEffect 1s infinite;
 }
 
-/* Definicja animacji migania */
 @keyframes flashingEffect {
   0% {
     opacity: 1;
